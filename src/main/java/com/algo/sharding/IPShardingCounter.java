@@ -1,6 +1,5 @@
 package com.algo.sharding;
 
-import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.RandomAccessFile;
 import java.util.ArrayList;
@@ -12,34 +11,31 @@ import java.util.Map;
 import java.util.Map.Entry;
 import java.util.TreeMap;
 
-public class IPSharding {
+public class IPShardingCounter {
 
-	static final Integer SHARD_FILE_NUM = 1024;
-	static final Integer COUNTER_BYTES = 4;
-	static final Integer IPsPerFile = (int)Math.ceil(Math.pow(2, 32) / SHARD_FILE_NUM);
+	//Number of sharding files
+	private final Integer SHARD_FILE_NUM;
 	
-	private String ip;
-	private String[] splittedIp;
-	private int fileNo;
-	private int offset;
-	private long valueOfIP;
+	//length of access count of each IP in byte
+	private final Integer COUNTER_BYTES;
 	
-	private Map<String, RandomAccessFile> IPCountfiles = new HashMap<String, RandomAccessFile>();
-	
-	public void setIP(String _ip)
+	//IP in each file
+	private final Integer IPsPerFile;
+
+
+	public IPShardingCounter()
 	{
-		ip = _ip;
-		splittedIp = ip.split("\\.");
-		valueOfIP =
-				(Long.valueOf(splittedIp[0]) << 24) +
-				(Long.valueOf(splittedIp[1]) << 16) +
-				(Long.valueOf(splittedIp[2]) << 8) +
-				(Long.valueOf(splittedIp[3]) << 0);
-		fileNo = (int) (valueOfIP / IPsPerFile);
-		offset = (int) (valueOfIP % IPsPerFile);
+		SHARD_FILE_NUM = 1024;
+		COUNTER_BYTES = 4;//Only support 4 currently
+		IPsPerFile = (int)Math.ceil(Math.pow(2, 32) / SHARD_FILE_NUM);
 	}
+	
+	private Map<Integer, RandomAccessFile> IPCountfiles = new HashMap<Integer, RandomAccessFile>(16);
+	
+	//fileNo = (int) (valueOfIP / IPsPerFile);
+	//offset = (int) (valueOfIP % IPsPerFile);
 
-	RandomAccessFile createInitialFile() throws IOException
+	private RandomAccessFile createInitialFile(int fileNo) throws IOException
 	{
 		RandomAccessFile raf = new RandomAccessFile("sharding/" + fileNo + ".cnt", "rw");
 		//The access times for THE_IP is kept on (THE_IP / SHARD_FILE_NUM) th file
@@ -53,45 +49,69 @@ public class IPSharding {
 		}
 
 		raf.write(b);
+		IPCountfiles.put(fileNo, raf);
 		return raf;
 	}
-	
-	long getFileOffset()
-	{
-		return offset * COUNTER_BYTES;
-	}
-	
-	public long inc() throws IOException
-	{
-		String strFileNo = String.valueOf(fileNo);
-		if (!IPCountfiles.containsKey(strFileNo))
-		{
-			RandomAccessFile initFile = createInitialFile();
-			IPCountfiles.put(String.valueOf(strFileNo), initFile);
-		}
 
-		RandomAccessFile ipCountFile = IPCountfiles.get(strFileNo);
-		ipCountFile.seek(getFileOffset());
-		Integer currentAccessTimes = ipCountFile.readInt();
-		currentAccessTimes++;
-		ipCountFile.seek(getFileOffset());
-		ipCountFile.writeInt(currentAccessTimes);
-
-		return currentAccessTimes;
-	}
-	
-	public String number2Ip(Long numberIp)
+	public static String number2Ip(Long numberIp)
 	{
 		return String.valueOf((numberIp & 0xff000000) >> 24) + "." +
 		String.valueOf((numberIp & 0xff0000) >> 16) + "." +
 		String.valueOf((numberIp & 0xff00) >> 8) + "." +
 		String.valueOf(numberIp & 0xff);
 	}
+
+	public static long ip2Number(String ip)
+	{
+		String[] splittedIp = ip.split("\\.");
+		long valueOfIP =
+				(Long.valueOf(splittedIp[0]) << 24) +
+				(Long.valueOf(splittedIp[1]) << 16) +
+				(Long.valueOf(splittedIp[2]) << 8) +
+				(Long.valueOf(splittedIp[3]) << 0);
+		
+		return valueOfIP;
+	}
+
+	private long ip2FileOffset(String ip)
+	{
+		long valueOfIP = ip2Number(ip);
+		int posOfIp = (int) (valueOfIP % IPsPerFile);
+		long fileOffset = posOfIp * COUNTER_BYTES;
+		return fileOffset;
+	}
+	
+	private int ip2FileNo(String ip)
+	{
+		long valueOfIP = ip2Number(ip);
+		int fileNo = (int) (valueOfIP / IPsPerFile);
+		return fileNo;
+	}
+	
+	public long inc(String ip) throws IOException
+	{
+		int strFileNo = ip2FileNo(ip);
+		if (!IPCountfiles.containsKey(strFileNo))
+		{
+			RandomAccessFile initFile = createInitialFile(strFileNo);
+			IPCountfiles.put(strFileNo, initFile);
+		}
+
+		long fileOffset = ip2FileOffset(ip);
+		RandomAccessFile ipCountFile = IPCountfiles.get(strFileNo);
+		ipCountFile.seek(fileOffset);
+		Integer currentAccessTimes = ipCountFile.readInt();
+		currentAccessTimes++;
+		ipCountFile.seek(fileOffset);
+		ipCountFile.writeInt(currentAccessTimes);
+
+		return currentAccessTimes;
+	}
 	
 	public Map<String, Integer> getTopnAccessdIPs(Integer fileNo, Integer numberOfElements) throws IOException
 	{
 		Map<String, Integer> topN = new TreeMap<String, Integer>();
-		String strFileNo = String.valueOf(fileNo);
+		Integer strFileNo = fileNo;
 		if (!IPCountfiles.containsKey(strFileNo))
 		{
 			return topN;
