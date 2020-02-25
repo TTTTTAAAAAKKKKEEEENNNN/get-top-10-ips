@@ -1,40 +1,25 @@
 package com.algo.gettop10ips;
 
 import java.io.IOException;
-import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 
-import com.algo.sharding.IPShardingCounter;
+import com.algo.sharding.FileSharder;
+import com.algo.sorting.FileRanker;
+import com.algo.counting.IpCounter;
+import com.algo.counting.MultiThreadIPCounter;
+import com.algo.utils.LogFileCreator;
 
 public class Main {
-    public static void main( String[] args ) throws IOException
+    public static void main( String[] args ) throws IOException, InterruptedException
     {
-    	IPTokenizer []ipc = new IPTokenizer[4];
-    	ExecutorService e = Executors.newFixedThreadPool(ipc.length);
-    	for (int i = 0; i < ipc.length; i++)
-    	{
-    		ipc[i] = new IPTokenizer("access.log", ipc.length, i);
-    	}
-    	
-    	for (int i = 0; i < ipc.length; i++)
-    	{
-    		final IPTokenizer x = ipc[i];
-    		e.submit(() -> { try {
-    			String ss;
-				while ( (ss = x.getNextIp()) != null) {
-					//System.out.println(ss);
-				}
-			} catch (Exception e1) {
-				// TODO Auto-generated catch block
-				e1.printStackTrace();
-			}; });
-    	}
-    	
-    	IPShardingCounter ipSharding = new IPShardingCounter();
-    	String curIp;
-
-    	Map<String, Integer> res = ipSharding.getTopnAccessdIPs(40, 10);
-    	System.out.println(res);
+    	//LogFileCreator.generateRandomIpLogFile( "e:\\access.log", 10000000);
+    	FileSharder fs = new FileSharder("e:\\access.log", 100, "e:\\logshard");
+    	//fs.doShard();
+    	MultiThreadIPCounter smpCounter = new MultiThreadIPCounter("e:\\logshard", 100);
+    	//smpCounter.doCount();
+    	FileRanker theRanker = new FileRanker("e:\\logshard.stat", 100);
+    	theRanker.doRank(100);
     }
 }
